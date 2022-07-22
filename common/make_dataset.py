@@ -17,8 +17,8 @@ import json, os, re
 import argparse
 
 # OpenNMT has a fancy pipe
-DELIM = "￨"
-ENT = "<ent> "
+DELIM = "|"
+ENT = "<ent>|"
 # I manually checked and there are at most 24 elements in an entity
 ENT_SIZE = 24
 
@@ -30,7 +30,7 @@ ls_keys = ['PTS_QTR1', 'PTS_QTR2', 'PTS_QTR3', 'PTS_QTR4', 'PTS', 'FG_PCT',
            'FG3_PCT', 'FT_PCT', 'REB', 'AST', 'TOV', 'WINS', 'LOSSES', 'CITY',
            'NAME']
 ls_keys = [f'TEAM-{key}' for key in ls_keys]
-f = open('rotowire/config.json')
+f = open('data/rotowire/config.json')
 MAP = json.load(f)
 POS_MAP = MAP['POS_MAP']
 K_MAP = MAP["K_MAP"]
@@ -40,7 +40,7 @@ def _build_home(entry):
     """The team who hosted the game"""
     records = []
     for key in ls_keys:
-        records.append(ENT + DELIM.join([entry['home_name'], key, entry['home_line'][key].replace(' ', '_'), 'Home']))
+        records.append(ENT + DELIM.join([entry['home_name'], key, entry['home_line'][key].replace(' ', '_'), 'Home'])+DELIM)
     return records
 
 
@@ -49,7 +49,7 @@ def _build_vis(entry):
     records = []
     for key in ls_keys:
         # Contrary to previous work, home is now a unique token at the end
-        records.append(ENT + DELIM.join([entry['vis_name'], key, entry['vis_line'][key].replace(' ', '_'), 'Visit']))
+        records.append(ENT + DELIM.join([entry['vis_name'], key, entry['vis_line'][key].replace(' ', '_'), 'Visit'])+DELIM)
     return records
 
 
@@ -74,7 +74,7 @@ def get_player_idxs(entry):
     return home_players, vis_players
 
 
-def box_preprocess(entry, remove_na=True):
+def box_preprocess(entry, remove_na=False):
     home_players, vis_players = get_player_idxs(entry)
 
     all_entities = list()  # will contain all records of the input table
@@ -93,7 +93,7 @@ def box_preprocess(entry, remove_na=True):
                 score.append(get_scores(entity, key, val, m_val,
                                         ' '.join(entry['summary']).split('.')[:-1]))
                 player.extend([entity, key, val.replace(' ', '_'), is_home_str])
-                all_entities.append(ENT + DELIM.join(player))
+                all_entities.append(ENT + DELIM.join(player)+DELIM)
             # We pad the entity to size ENT_SIZE with OpenNMT <blank> token
             # player.extend([DELIM.join(['<blank>', '<blank>'])] * (ENT_SIZE - len(player)))
             # all_entities.append(player)
@@ -118,7 +118,8 @@ def get_scores(entity, key, value, m_val, summary):
             if i in s:
                 return True
         return False
-
+    if value =='N/A':
+        return 0
     score = 0
     ent_list = entity.split(' ') + [entity]
     for n, sentence in enumerate(summary):
@@ -132,7 +133,7 @@ def get_scores(entity, key, value, m_val, summary):
                     elif score == 0:
                         score = base * 0.3 + 0.2
                 else:
-                    if key == 'START_POSITION' and _check(POS_MAP[value], sentence) or value in sentence:
+                    if key == 'START_POSITION'  and _check(POS_MAP[value], sentence) or value in sentence:
                         return base * 0.5 + 0.5
                     elif score == 0:
                         score = base * 0.3 + 0.2
@@ -162,9 +163,9 @@ def _clean_summary(summary, tokens):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--folder', dest='folder', required=True,
+    parser.add_argument('--folder', dest='folder', default='./',required=False,
                         help='Save the preprocessed dataset to this folder')
-    parser.add_argument('--keep-na', dest='keep_na', action='store_true',
+    parser.add_argument('--keep-na', dest='keep_na', default=True,action='store_true',
                         help='Activate to keep NA in the dataset')
 
     args = parser.parse_args()
@@ -188,7 +189,8 @@ if __name__ == '__main__':
                 with open(lable_filename, mode='w', encoding='utf8') as labelf:
                     for entry in data:
                         input, score = box_preprocess(entry)
-                        inputf.write(' '.join(input) + '\n')
+                        inputf.write(''.join(input) + '\n')
                         summary = _clean_summary(entry['summary'], input)
                         outputf.write(summary + '\n')
-                        labelf.write(' '.join(str(score)) + '\n')
+                        score = list(map(str,score))
+                        labelf.write(' '.join(score) + '\n')
