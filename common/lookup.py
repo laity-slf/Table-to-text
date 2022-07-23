@@ -65,6 +65,7 @@ def get_record_lookup_from_first_token(records, encoder, scores, tokenizer, devi
     # max_length_records = max([len(r) for r in records])
     max_length_records = 660
     for record in tqdm(records, desc='正在创建字典'):
+
         # get record ids
         record_ids, record_lens = get_record_ids(record, tokenizer)
         # encoding

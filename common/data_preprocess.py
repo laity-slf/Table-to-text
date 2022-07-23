@@ -8,9 +8,11 @@ RECORD = "<record>"
 
 
 def prepare_for_bert(input_file, tokenizer, example_type='train'):
-    if os.path.exists(os.path.join(input_file, 'bert_data/data.npy')):
-        entity, team = np.load('../data/bert_data/data.npy', allow_pickle=True)
+    data_file = f'{input_file}/bert_data/data_{example_type}.npy'
+    if os.path.exists(os.path.join(input_file, data_file)):
+        entity, team = np.load(data_file, allow_pickle=True)
     else:
+        print(f"create {example_type}")
         src = example_type.lower() + '_src.txt'
         with open(os.path.join(input_file, src), 'r') as f:
             lines = f.readlines()
@@ -20,7 +22,6 @@ def prepare_for_bert(input_file, tokenizer, example_type='train'):
         # TODO 加入team 的信息
         #  先获取Home 和 Visit的队伍信息列表
         team = []
-
         for x_t in x_team:
             tmp = {'Home': [], 'Visit': []}
             for i, s in enumerate(x_t):
@@ -35,31 +36,32 @@ def prepare_for_bert(input_file, tokenizer, example_type='train'):
         entity = [[] for _ in range(len(x))]  # 初始化固定长度
         record_num = 22
         n = 0
-        tmp = []
         for i, table in enumerate(x):
+            tmp = []
             for record in table:
                 r = record.split('|')
                 if n % record_num == 0:
+                    n = 0
                     if tmp:
                         entity[i].append(' '.join(tmp[:-1]))
                     tmp = [r[0] + ' ' + r[-2] + ' ' + RECORD]
-                    n = 1
                 else:
                     r[-2] = RECORD
-                    tmp.extend(r[1:-1])
-                    n += 1
+                tmp.extend(r[1:-1])
+                n += 1
+            entity[i].append(' '.join(tmp[:-1]))
+
         # 保存文件为 npy
-        np.save('../data/bert_data/data.npy', (entity, team))
+        np.save(data_file, (entity, team))
     # 读取 label
     tgt = example_type.lower() + '_label.txt'
     with open(os.path.join(input_file, tgt), 'r') as f:
         lines = f.readlines()
         y = [line.strip('\n').split(' ') for line in lines]
         y = [yy[:-30] for yy in y]
+    print("finishing creating")
 
-    convert_example2feature(list(entity), list(team), y, tokenizer)
-
-    return entity
+    return convert_example2feature(list(entity), list(team), y, tokenizer)
 
 
 def convert_example2feature(entity, team, label, tokenizer):
@@ -67,7 +69,7 @@ def convert_example2feature(entity, team, label, tokenizer):
     entity_type_ids = []
     entity_lens = []
     max_len = 0
-    loop = tqdm(enumerate(entity), desc='正在分词')
+    loop = tqdm(enumerate(entity), desc='正在分词', total=len(entity))
     for i, tab in loop:
         for ent in tab:
             k = 'Home' if 'Home' in ent else 'Visit'
@@ -84,15 +86,29 @@ def convert_example2feature(entity, team, label, tokenizer):
             entity_lens.append(entity_len)
 
     entity_ids_padded = []
+    entity_type_ids_padded = []
     record_pos = []
-    for entity_item_ids in entity_ids:
-        item_len = len(entity_item_ids)
-        padding = [0] * (max_len - item_len)
-        entity_ids_padded.append(entity_item_ids + padding)
-        record_p = np.where(np.array(entity_item_ids) == tokenizer.tokenizer.additional_special_tokens_ids[0])
+
+    for i in range(len(entity_ids)):
+        # item_len = len(entity_item_ids)
+        padding = [0] * (max_len - entity_lens[i])
+        entity_ids_padded.append(entity_ids[i] + padding)
+        entity_type_ids_padded.append(entity_type_ids[i] + padding)
+        record_p = (np.array(entity_ids[i]+padding) == tokenizer.additional_special_tokens_ids[0])
         record_pos.append(record_p)
 
-    return 0
+    # 转换为tensor，注意类型为 long
+    entity_ids_padded = torch.tensor(entity_ids_padded, dtype=torch.long)
+    entity_type_ids_padded = torch.tensor(entity_type_ids_padded, dtype=torch.long)
+    record_pos = torch.tensor(record_pos)
+    entity_mask = (entity_ids_padded > 0)
+    # resize label
+    y = []
+    for yy in label:
+        yy = list(map(float, yy))
+        y.extend(np.array(yy).reshape(-1, 22))
+    y = torch.tensor(np.array(y), dtype=torch.float)
+    return entity_ids_padded, entity_type_ids_padded, entity_mask, y, record_pos
 
 
 if __name__ == '__main__':

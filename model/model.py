@@ -5,7 +5,24 @@ import torch.nn as nn
 import torch.nn.functional as F
 from copy import deepcopy
 from torch.nn import CrossEntropyLoss
-from transformers import BertPreTrainedModel, BertModel
+from transformers import BertPreTrainedModel, BertModel, BertConfig
+
+
+# 定义model
+class Bert_Model(nn.Module):
+    def __init__(self, bert_path, classes=1):
+        super(Bert_Model, self).__init__()
+        self.config = BertConfig.from_pretrained(bert_path)  # 导入模型超参数
+        self.bert = BertModel.from_pretrained(bert_path)  # 加载预训练模型权重
+        self.fc = nn.Linear(self.config.hidden_size, classes)  # 直接分类
+
+    def forward(self, input_ids, attention_mask=None, token_type_ids=None, record_pos=None):
+        outputs = self.bert(input_ids, attention_mask, token_type_ids)
+        # 去 前22个record的对应输出向量
+        out = outputs[0][record_pos, :]
+        out_record = out.view(-1, 36, 768)[:, :22, :]  # 池化后的输出 [bs,22,config.hidden_size]
+        logit = self.fc(out_record)  # [bs, classes]
+        return logit.squeeze()
 
 
 class RecordEncoding(BertPreTrainedModel):

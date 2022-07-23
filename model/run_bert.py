@@ -3,21 +3,22 @@
 import argparse
 import json
 import logging
+import time
+
 import numpy as np
 import random
 from tqdm import tqdm
 import os
 import torch
 from sklearn.metrics import f1_score
-from torch.utils.data import DataLoader, Dataset
-from transformers import AdamW, BertForSequenceClassification, BertTokenizer, BertConfig
+from torch.utils.data import DataLoader, Dataset, TensorDataset, RandomSampler
+from transformers import AdamW, BertForSequenceClassification, BertTokenizer, BertConfig, \
+    get_cosine_schedule_with_warmup
 from torch import nn, optim
 from transformers.models.bert.modeling_bert import BERT_PRETRAINED_MODEL_ARCHIVE_LIST
-from common.utils import create_examples
-from common.lookup import get_record_lookup_from_first_token
 from common.dataset_rotowire import RotowireDataset
 from common.data_preprocess import prepare_for_bert
-from model import RecordEncoding, Regression
+from model import Bert_Model
 
 MODEL_CLASSES = {
     'bert': (BertConfig, BertForSequenceClassification, BertTokenizer)
@@ -31,6 +32,61 @@ def set_seed(num):
     random.seed(num)
     np.random.seed(num)
     torch.manual_seed(num)
+
+
+def train_and_eval(model, train_loader,
+                   optimizer, scheduler, device, epoch, model_dir):
+    best_loss = 0.0
+    patience = 0
+    criterion = nn.MSELoss()
+    for i in range(epoch):
+        """训练模型"""
+        start = time.time()
+        model.train()
+        print("***** Running training epoch {} *****".format(i + 1))
+        train_loss_sum = 0.0
+        loop = tqdm(enumerate(train_loader), total=len(train_loader))
+        for idx, (ids, att, tpe, record_pos, y) in loop:
+            ids, att, tpe, record_pos, y = ids.to(device), att.to(device), tpe.to(device), record_pos.to(device), y.to(
+                device)
+            y_pred = model(ids, att, tpe, record_pos)
+            loss = criterion(y_pred, y)
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+            scheduler.step()  # 学习率变化
+            train_loss_sum += loss.item()
+            loop.set_description(f'Epoch [{i + 1}/{epoch}]')
+            loop.set_postfix({'loss': '{:.5f}'.format(loss.item())})
+        print('\nTrain | Loss:{:.5f} '.format(train_loss_sum / len(train_loader)))
+
+    torch.save(model, os.path.join(model_dir, 'ckpt_bert.model'))
+
+    # # """验证模型"""
+    # model.eval()
+    # val_loss = evaluate(model, valid_loader, device)  # 验证模型的性能
+    # ## 保存最优模型
+    # if val_loss > best_loss:
+    #     best_loss = loss
+    #     torch.save(model, os.path.join(model_dir, 'ckpt_bert.model'))
+    #
+    # print("current loss is {:.4f}, best loss is {:.4f}".format(loss, best_loss))
+    # print("time costed = {}s \n".format(round(time.time() - start, 5)))
+    # model.train()
+
+
+def evaluate(model, valid_loader, device):
+    tot_loss = 0
+    criterion = nn.MSELoss()
+    val_pred = []
+    for idx, (ids, att, tpe, record_pos) in tqdm(enumerate(valid_loader)):
+        output = model(ids.to(device), att.to(device), tpe.to(device), )
+        # y_pred = torch.argmax(y_pred, dim=1).detach().cpu().numpy().tolist()
+        # val_pred.extend(y_pred)
+        loss = criterion()
+        tot_loss += loss.item()
+
+    return val_pred, tot_loss / len(valid_loader)
 
 
 def main():
@@ -53,13 +109,13 @@ def main():
                         help="Whether to run training.")
     parser.add_argument("--do_eval", action='store_true',
                         help="Whether to run eval on the <predict_type> set.")
-    parser.add_argument("--train_batch_size", default=16, type=int,
+    parser.add_argument("--train_batch_size", default=32, type=int,
                         help="Batch size per GPU/CPU for training.")
-    parser.add_argument("--per_gpu_eval_batch_size", default=8, type=int,
+    parser.add_argument("--per_gpu_eval_batch_size", default=16, type=int,
                         help="Batch size per GPU/CPU for evaluation.")
-    parser.add_argument("--learning_rate", default=5e-5, type=float,
+    parser.add_argument("--learning_rate", default=3e-5, type=float,
                         help="The initial learning rate for Adam.")
-    parser.add_argument("--num_train_epochs", default=3.0, type=float,
+    parser.add_argument("--num_train_epochs", default=10, type=int,
                         help="Total number of training epochs to perform.")
 
     args = parser.parse_args()
@@ -79,9 +135,33 @@ def main():
     # config 参数调整
     # config.num_labels = 1  # 回归任务
 
-    # create example
-    train_data, train_label = prepare_for_bert(args.data_dir, tokenizer, example_type='train')
-    val_data, val_label = prepare_for_bert(args.data_dir, example_type='valid')
+    model = Bert_Model(args.model_name_or_path)
+    model.bert.resize_token_embeddings(len(tokenizer))
+    model.to(device)
+    epoch = args.num_train_epochs
+
+
+    if args.do_train:
+        # create example
+        train_file = os.path.join(args.data_dir, 'bert_data/training_data.pt')
+        if os.path.exists(train_file):
+            input_ids_train, input_types_train, input_masks_train, y_train, record_pos = torch.load(train_file)
+        else:
+            input_ids_train, input_types_train, input_masks_train, y_train, record_pos = prepare_for_bert(
+                args.data_dir, tokenizer, example_type='train')
+            torch.save([input_ids_train, input_types_train, input_masks_train, y_train, record_pos], train_file)
+            print("saved")
+        train_data = TensorDataset(input_ids_train, input_masks_train, input_types_train, record_pos, y_train)
+        train_sampler = RandomSampler(train_data)
+        train_loader = DataLoader(train_data, sampler=train_sampler, batch_size=args.train_batch_size)
+        optimizer = AdamW(model.parameters(), lr=args.learning_rate, weight_decay=1e-4)  # AdamW优化器
+        scheduler = get_cosine_schedule_with_warmup(optimizer, num_warmup_steps=len(train_loader),
+                                                    num_training_steps=epoch * len(train_loader))
+        logger.info(f"batch={args.train_batch_size},lr = {args.learning_rate} ")
+        train_and_eval(model, train_loader, optimizer, scheduler, device, epoch,
+                       os.path.join(args.data_dir, 'bert_saved'))
+    if args.do_eval:
+        pass
 
 
 if __name__ == '__main__':
