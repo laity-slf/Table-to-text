@@ -40,7 +40,8 @@ def _build_home(entry):
     """The team who hosted the game"""
     records = []
     for key in ls_keys:
-        records.append(ENT + DELIM.join([entry['home_name'], key, entry['home_line'][key].replace(' ', '_'), 'Home'])+DELIM)
+        records.append(
+            ENT + DELIM.join([entry['home_name'], key, entry['home_line'][key].replace(' ', '_'), 'Home']) + DELIM)
     return records
 
 
@@ -49,7 +50,8 @@ def _build_vis(entry):
     records = []
     for key in ls_keys:
         # Contrary to previous work, home is now a unique token at the end
-        records.append(ENT + DELIM.join([entry['vis_name'], key, entry['vis_line'][key].replace(' ', '_'), 'Visit'])+DELIM)
+        records.append(
+            ENT + DELIM.join([entry['vis_name'], key, entry['vis_line'][key].replace(' ', '_'), 'Visit']) + DELIM)
     return records
 
 
@@ -93,7 +95,7 @@ def box_preprocess(entry, remove_na=False):
                 score.append(get_scores(entity, key, val, m_val,
                                         ' '.join(entry['summary']).split('.')[:-1]))
                 player.extend([entity, key, val.replace(' ', '_'), is_home_str])
-                all_entities.append(ENT + DELIM.join(player)+DELIM)
+                all_entities.append(ENT + DELIM.join(player) + DELIM)
             # We pad the entity to size ENT_SIZE with OpenNMT <blank> token
             # player.extend([DELIM.join(['<blank>', '<blank>'])] * (ENT_SIZE - len(player)))
             # all_entities.append(player)
@@ -118,7 +120,8 @@ def get_scores(entity, key, value, m_val, summary):
             if i in s:
                 return True
         return False
-    if value =='N/A':
+
+    if value == 'N/A':
         return 0
     score = 0
     ent_list = entity.split(' ') + [entity]
@@ -133,7 +136,7 @@ def get_scores(entity, key, value, m_val, summary):
                     elif score == 0:
                         score = base * 0.3 + 0.2
                 else:
-                    if key == 'START_POSITION'  and _check(POS_MAP[value], sentence) or value in sentence:
+                    if key == 'START_POSITION' and _check(POS_MAP[value], sentence) or value in sentence:
                         return base * 0.5 + 0.5
                     elif score == 0:
                         score = base * 0.3 + 0.2
@@ -141,7 +144,7 @@ def get_scores(entity, key, value, m_val, summary):
     if score:
         return score
     else:
-        return (int(value) / (m_val+1e-3)) * 0.2 if K_MAP[key] else 0.05
+        return (int(value) / (m_val + 1e-3)) * 0.2 if K_MAP[key] else 0.05
 
 
 def _clean_summary(summary, tokens):
@@ -163,9 +166,9 @@ def _clean_summary(summary, tokens):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--folder', dest='folder', default='./',required=False,
+    parser.add_argument('--folder', dest='folder', default='./', required=False,
                         help='Save the preprocessed dataset to this folder')
-    parser.add_argument('--keep-na', dest='keep_na', default=True,action='store_true',
+    parser.add_argument('--keep-na', dest='keep_na', default=True, action='store_true',
                         help='Activate to keep NA in the dataset')
 
     args = parser.parse_args()
@@ -192,5 +195,5 @@ if __name__ == '__main__':
                         inputf.write(''.join(input) + '\n')
                         summary = _clean_summary(entry['summary'], input)
                         outputf.write(summary + '\n')
-                        score = list(map(str,score))
+                        score = list(map(str, score))
                         labelf.write(' '.join(score) + '\n')

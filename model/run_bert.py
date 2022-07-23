@@ -34,10 +34,10 @@ def set_seed(num):
     torch.manual_seed(num)
 
 
-def train_and_eval(model, train_loader,
+def train_and_eval(model, train_loader, val_loader,
                    optimizer, scheduler, device, epoch, model_dir):
     best_loss = 0.0
-    patience = 0
+    F1score = 0.0
     criterion = nn.MSELoss()
     for i in range(epoch):
         """训练模型"""
@@ -58,21 +58,18 @@ def train_and_eval(model, train_loader,
             train_loss_sum += loss.item()
             loop.set_description(f'Epoch [{i + 1}/{epoch}]')
             loop.set_postfix({'loss': '{:.5f}'.format(loss.item())})
-        print('\nTrain | Loss:{:.5f} '.format(train_loss_sum / len(train_loader)))
+        print('Train | Loss:{:.5f} '.format(train_loss_sum / len(train_loader)))
 
-    torch.save(model, os.path.join(model_dir, 'ckpt_bert.model'))
-
-    # # """验证模型"""
-    # model.eval()
-    # val_loss = evaluate(model, valid_loader, device)  # 验证模型的性能
-    # ## 保存最优模型
-    # if val_loss > best_loss:
-    #     best_loss = loss
-    #     torch.save(model, os.path.join(model_dir, 'ckpt_bert.model'))
-    #
-    # print("current loss is {:.4f}, best loss is {:.4f}".format(loss, best_loss))
-    # print("time costed = {}s \n".format(round(time.time() - start, 5)))
-    # model.train()
+        # torch.save(model, os.path.join(model_dir, 'ckpt_bert_relu.model'))
+        # """验证模型"""
+        model.eval()
+        val_loss = evaluate(model, val_loader, device)  # 验证模型的性能
+        # 保存最优模型
+        if val_loss > best_loss:
+            best_loss = val_loss
+            torch.save(model, os.path.join(model_dir, 'ckpt_bert.model'))
+        print("current loss is {:.5f}, best loss is {:.5f}".format(val_loss, best_loss))
+        model.train()
 
 
 def evaluate(model, valid_loader, device):
@@ -140,26 +137,35 @@ def main():
     model.to(device)
     epoch = args.num_train_epochs
 
-
     if args.do_train:
         # create example
-        train_file = os.path.join(args.data_dir, 'bert_data/training_data.pt')
-        if os.path.exists(train_file):
-            input_ids_train, input_types_train, input_masks_train, y_train, record_pos = torch.load(train_file)
-        else:
-            input_ids_train, input_types_train, input_masks_train, y_train, record_pos = prepare_for_bert(
-                args.data_dir, tokenizer, example_type='train')
-            torch.save([input_ids_train, input_types_train, input_masks_train, y_train, record_pos], train_file)
-            print("saved")
-        train_data = TensorDataset(input_ids_train, input_masks_train, input_types_train, record_pos, y_train)
+        logger.info(f'use model:{model}')
+        path_dic = {}
+        for example_type in ['train', 'val', 'test']:
+            path_dic[example_type] = os.path.join(args.data_dir, f'bert_data/{example_type}_data.pt')
+            file = path_dic[example_type]
+            if not os.path.exists(file):
+                input_ids, input_types, input_masks, y, record_pos = prepare_for_bert(args.data_dir, tokenizer,
+                                                                                      example_type=example_type)
+                torch.save([input_ids, input_types, input_masks, y, record_pos], file)
+                print(f"saving {example_type}_data")
+        # 加载数据
+        input_ids_train, input_types_train, input_masks_train, y_train, record_pos_train = torch.load(path_dic['train'])
+        input_ids_val, input_types_val, input_masks_val, y_val, record_pos_val = torch.load(path_dic['train'])
+        # 封装 训练验证数据
+        train_data = TensorDataset(input_ids_train, input_masks_train, input_types_train, record_pos_train, y_train)
+        val_data = TensorDataset(input_ids_val, input_masks_val, input_types_val, record_pos_val, y_val)
         train_sampler = RandomSampler(train_data)
         train_loader = DataLoader(train_data, sampler=train_sampler, batch_size=args.train_batch_size)
+        val_loader = DataLoader(train_data, batch_size=args.train_batch_size, shuffle=False)
         optimizer = AdamW(model.parameters(), lr=args.learning_rate, weight_decay=1e-4)  # AdamW优化器
         scheduler = get_cosine_schedule_with_warmup(optimizer, num_warmup_steps=len(train_loader),
                                                     num_training_steps=epoch * len(train_loader))
+
         logger.info(f"batch={args.train_batch_size},lr = {args.learning_rate} ")
-        train_and_eval(model, train_loader, optimizer, scheduler, device, epoch,
+        train_and_eval(model, train_loader, val_loader, optimizer, scheduler, device, epoch,
                        os.path.join(args.data_dir, 'bert_saved'))
+
     if args.do_eval:
         pass
 

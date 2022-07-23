@@ -12,7 +12,7 @@ def prepare_for_bert(input_file, tokenizer, example_type='train'):
     if os.path.exists(os.path.join(input_file, data_file)):
         entity, team = np.load(data_file, allow_pickle=True)
     else:
-        print(f"create {example_type}")
+        print(f"*****create {example_type}*****")
         src = example_type.lower() + '_src.txt'
         with open(os.path.join(input_file, src), 'r') as f:
             lines = f.readlines()

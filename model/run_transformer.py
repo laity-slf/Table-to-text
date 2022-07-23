@@ -66,7 +66,7 @@ def training(n_epoch, lr, model_dir, train, valid, model, device):
             loss.backward()
             optimizer.step()
             total_loss += loss.item()
-            loop.set_description(f'Epoch [{epoch+1}/{n_epoch}]')
+            loop.set_description(f'Epoch [{epoch + 1}/{n_epoch}]')
             loop.set_postfix({'loss': '{:.5f}'.format(loss.item())})
             # print('[ Epoch{}: {}/{} ] loss:{:.3f} acc:{:.3f} '.format(
             #     epoch + 1, i + 1, t_batch, loss.item(), correct * 100 / batch_size), end='\r')
@@ -102,6 +102,8 @@ def testing(test_loader, model, device):
     ret_output = []
     criterion = nn.MSELoss()
     total_loss = 0
+    label_list = []
+    pred_list = []
     with torch.no_grad():
         for i, (inputs, labels) in enumerate(test_loader):
             inputs = inputs.to(device)
@@ -144,8 +146,8 @@ def main():
                         help="The initial learning rate for Adam.")
     parser.add_argument("--num_train_epochs", default=3.0, type=float,
                         help="Total number of training epochs to perform.")
-
     args = parser.parse_args()
+
     # device
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     logging.basicConfig(format='%(asctime)s - %(levelname)s - %(name)s -   %(message)s',

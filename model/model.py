@@ -14,7 +14,10 @@ class Bert_Model(nn.Module):
         super(Bert_Model, self).__init__()
         self.config = BertConfig.from_pretrained(bert_path)  # 导入模型超参数
         self.bert = BertModel.from_pretrained(bert_path)  # 加载预训练模型权重
-        self.fc = nn.Linear(self.config.hidden_size, classes)  # 直接分类
+        self.fc = nn.Sequential(
+            nn.Linear(self.config.hidden_size, 1),
+            nn.ReLU(),
+        )
 
     def forward(self, input_ids, attention_mask=None, token_type_ids=None, record_pos=None):
         outputs = self.bert(input_ids, attention_mask, token_type_ids)
