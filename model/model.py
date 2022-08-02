@@ -20,10 +20,11 @@ class Bert_Model(nn.Module):
         )
 
     def forward(self, input_ids, attention_mask=None, token_type_ids=None, record_pos=None):
+        batch = input_ids.size(0)
         outputs = self.bert(input_ids, attention_mask, token_type_ids)
         # 去 前22个record的对应输出向量
         out = outputs[0][record_pos, :]
-        out_record = out.view(-1, 36, 768)[:, :22, :]  # 池化后的输出 [bs,22,config.hidden_size]
+        out_record = out.view(batch, -1, 768)[:, :20, :]  # 池化后的输出 [bs,22,config.hidden_size]
         logit = self.fc(out_record)  # [bs, classes]
         return logit.squeeze()
 
@@ -69,4 +70,22 @@ class Regression(nn.Module):
         # stats = out.mean(dim=1)
         # out: (batch, n_spks)
         out = self.pred_layer(out)
+        return out
+
+
+class linear_model(nn.Module):
+    def __init__(self, input_dim, out_dim, dropout=0.2):
+        super(linear_model, self).__init__()
+        self.fc = nn.Sequential(
+            nn.Linear(input_dim, 512),
+            nn.ReLU(),
+            nn.Linear(512, 256),
+            nn.ReLU(),
+            nn.Linear(256, out_dim),
+            nn.ReLU(),
+            nn.Dropout(dropout))
+
+    def forward(self, x):
+        # batch * output_dim
+        out = self.fc(x)
         return out

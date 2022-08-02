@@ -16,6 +16,7 @@ from transformers.models.bert.modeling_bert import BERT_PRETRAINED_MODEL_ARCHIVE
 from common.utils import create_examples
 from common.lookup import get_record_lookup_from_first_token
 from common.dataset_rotowire import RotowireDataset
+from common.metric import get_f1score_transformer, get_acc_transformer, get_recall_transformer
 from model import RecordEncoding, Regression
 
 MODEL_CLASSES = {
@@ -110,12 +111,25 @@ def testing(test_loader, model, device):
             labels = labels.to(device)
             outputs = model(inputs)
             outputs = outputs.squeeze()
+            # 计算F1
+            pred = _norm(outputs) > 0.5
+            ll = labels > 0.5
+            label_list.extend(ll.view(-1).cpu().numpy().astype(int))
+            pred_list.extend(pred.view(-1).cpu().numpy().astype(int))
             loss = criterion(outputs, labels)
-
             total_loss += loss.item()
+    f1 = get_f1score_transformer(label_list, pred_list)
+    acc = get_acc_transformer(label_list, pred_list)
+    recall = get_recall_transformer(label_list, pred_list)
+    print("test | Loss:{:.5f}  f1_score:{:.5f} accuracy:{:.5f} recall:{:.5f}".format(total_loss / t_batch, f1, acc,
+                                                                                     recall))
 
-    print("test | Loss:{:.5f}".format(total_loss / t_batch))
     return ret_output
+
+
+def _norm(a):
+    return (a - torch.min(a, dim=1).values.view(-1, 1)) / (
+            torch.max(a, dim=1).values.view(-1, 1) - torch.min(a, dim=1).values.view(-1, 1))
 
 
 def main():

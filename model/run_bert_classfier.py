@@ -26,7 +26,6 @@ MODEL_CLASSES = {
 }
 ALL_MODELS = BERT_PRETRAINED_MODEL_ARCHIVE_LIST
 
-
 logger = logging.getLogger(__name__)
 
 
@@ -38,40 +37,39 @@ def set_seed(num):
 
 def train_and_eval(model, train_loader, val_loader,
                    optimizer, scheduler, device, epoch, model_dir):
-    best_loss = 1.0
-    criterion = nn.MSELoss()
+    best_acc = 0.0
+    criterion = nn.BCEWithLogitsLoss()
     for i in range(epoch):
         """训练模型"""
-        start = time.time()
         model.train()
         print("***** Running training epoch {} *****".format(i + 1))
-        train_loss_sum = 0.0
+        train_loss_sum = train_acc = 0.0
         loop = tqdm(enumerate(train_loader), total=len(train_loader))
         for idx, (ids, att, tpe, record_pos, y) in loop:
             ids, att, tpe, record_pos, y = ids.to(device), att.to(device), tpe.to(device), record_pos.to(device), y.to(
                 device)
             y_pred = model(ids, att, tpe, record_pos)
-            loss = criterion(y_pred, y)
+            loss = criterion(y_pred, y.float())
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
             scheduler.step()  # 学习率变化
             train_loss_sum += loss.item()
+            train_acc += (y_pred.ge(0.5) == y).float().mean()
             loop.set_description(f'Epoch [{i + 1}/{epoch}]')
-            loop.set_postfix({'loss': '{:.5f}'.format(loss.item())})
-        print('Train | Loss:{:.5f} '.format(train_loss_sum / len(train_loader)))
+            loop.set_postfix({'loss': '{:.5f}'.format(loss.item()), 'accuracy': f'{train_acc/len(train_loader):.5f}'})
+        print('Train | Loss:{:.5f} accuracy:{:.5f}'.format(train_loss_sum / len(train_loader),
+                                                           train_acc / len(train_loader)))
 
         # torch.save(model, os.path.join(model_dir, 'ckpt_bert_relu.model'))
         # """验证模型"""
         model.eval()
-        _, val_loss, _, _, _ = evaluate(model, val_loader, device)  # 验证模型的性能
+        _, val_loss, acc, _ = evaluate(model, val_loader, device)  # 验证模型的性能
         # 保存最优模型
-        if val_loss < best_loss:
-            best_loss = val_loss
-            save_path = os.path.join(model_dir, 'ckpt_bert_norm.model')
-            torch.save(model, save_path)
-            print('saving model in %s' % save_path)
-        print("current loss is {:.5f}, best loss is {:.5f}".format(val_loss, best_loss))
+        if acc > best_acc:
+            best_acc = acc
+            torch.save(model, os.path.join(model_dir, 'ckpt_bert_relu.model'))
+        print("\n current accuracy is {:.5f}, best accuracy is {:.5f}".format(acc, best_acc))
         model.train()
 
 
@@ -79,72 +77,33 @@ def evaluate(model, valid_loader, device, tab_lens=None):
     tot_loss = 0
     label_list = []
     pred_list = []
-    criterion = nn.MSELoss()
+    criterion = nn.BCEWithLogitsLoss()
     val_pred = []
     with torch.no_grad():
-        if not tab_lens:
-            for idx, (ids, att, tpe, record_pos, labels) in tqdm(enumerate(valid_loader), total=len(valid_loader)):
-                output = model(ids.to(device), att.to(device), tpe.to(device), record_pos.to(device))
-                pred = _norm(output) > 0.5
-                ll = _norm(labels) > 0.5
-                label_list.extend(ll.view(-1).cpu().numpy().astype(int))
-                pred_list.extend(pred.view(-1).cpu().numpy().astype(int))
-                loss = criterion(labels.to(device), output)
-                tot_loss += loss.item()
-            f1, acc, recall, precision = get_f1score_transformer(label_list, pred_list), get_acc_transformer(label_list,
-                                                                                                             pred_list), get_recall_transformer(
-                label_list, pred_list), get_precision_transformer(label_list, pred_list)
-            print(
-                "test | Loss:{:.5f}  f1_score:{:.5f} accuracy:{:.5f} recall:{:.5f} precision:{:.5f}".format(
-                    tot_loss / len(valid_loader), f1, acc, recall, precision))
-        else:
-            n = 0
-            count = 0
-            pred = []
-            ll = []
-            for idx, (ids, att, tpe, record_pos, labels) in tqdm(enumerate(valid_loader), total=len(valid_loader)):
-                output = model(ids.to(device), att.to(device), tpe.to(device), record_pos.to(device))
-                loss = criterion(labels[0].to(device), output)
-                tot_loss += loss.item()
-                # pred.append(output.cpu().numpy())
-                # ll.append(labels[0].cpu().numpy())
-                pred.extend(output.cpu().tolist())
-                ll.extend(labels[0].cpu().tolist())
-                count += 1
-                if count == tab_lens[n]:
-                    # pred = _norm(pred) > 0.5
-                    # ll = np.array(ll) > 0.5
-                    pred = set_top(pred, k=80)
-                    ll = set_top(ll, k=80)
-                    label_list.extend(ll)
-                    pred_list.extend(pred)
-                    # label_list.extend(ll.reshape(-1).astype(int))
-                    # pred_list.extend(pred.reshape(-1).astype(int))
-                    # reset变量
-                    pred = []
-                    ll = []
-                    n += 1
-                    count = 0
+        for idx, (ids, att, tpe, record_pos, labels) in tqdm(enumerate(valid_loader), total=len(valid_loader)):
+            output = model(ids.to(device), att.to(device), tpe.to(device), record_pos.to(device))
+            loss = criterion(labels.to(device).float(), output)
+            tot_loss += loss.item()
+            label_list.extend(output.view(-1).ge(0.5).to(int).cpu().tolist())
+            pred_list.extend(labels.view(-1).cpu().tolist())
 
-            f1, acc, recall, precision = get_f1score_transformer(label_list, pred_list), get_acc_transformer(label_list,
-                                                                                                             pred_list), get_recall_transformer(
-                label_list, pred_list), get_precision_transformer(label_list, pred_list)
+        f1, acc, recall, precision = get_f1score_transformer(label_list, pred_list), get_acc_transformer(label_list,
+                                                                                                         pred_list), get_recall_transformer(
+            label_list, pred_list), get_precision_transformer(label_list, pred_list)
 
-            print("test | Loss:{:.5f}  f1_score:{:.5f} accuracy:{:.5f} recall:{:.5f} precision {:.5f}".format(
-                tot_loss / len(valid_loader), f1,
-                acc, recall, precision))
+        print("test | Loss:{:.5f}  f1_score:{:.5f} accuracy:{:.5f} recall:{:.5f} precision {:.5f}".format(
+            tot_loss / len(valid_loader), f1,
+            acc, recall, precision))
+        return f1, tot_loss / len(valid_loader), acc, recall
 
-    return val_pred, tot_loss / len(valid_loader), f1, acc, recall
 
+#
+# def _norm(a):
+#     return (a - torch.min(a, dim=1).values.view(-1, 1)) / (
+#             torch.max(a, dim=1).values.view(-1, 1) - torch.min(a, dim=1).values.view(-1, 1))
 
 def _norm(a):
-    return (a - torch.min(a, dim=1).values.view(-1, 1)) / (
-            torch.max(a, dim=1).values.view(-1, 1) - torch.min(a, dim=1).values.view(-1, 1))
-
-
-
-# def _norm(a):
-#     return (a - np.min(a)) / (np.max(a) - np.min(a))
+    return (a - np.min(a)) / (np.max(a) - np.min(a))
 
 
 def set_top(r, k=75):
@@ -156,8 +115,6 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--data_dir", default=None, type=str, required=True,
                         help="Task database.")
-    parser.add_argument("--data_src", default=None, type=str, required=True,
-                        help="source database.")
     # parser.add_argument("--predict_type", default=None, type=str, required=True,
     #                     help="Portion of the data to perform prediction on (e.g., dev, test).")
     parser.add_argument("--model_name_or_path", default=None, type=str, required=True,
@@ -180,7 +137,7 @@ def main():
                         help="Batch size per GPU/CPU for evaluation.")
     parser.add_argument("--learning_rate", default=3e-5, type=float,
                         help="The initial learning rate for Adam.")
-    parser.add_argument("--num_train_epochs", default=5, type=int,
+    parser.add_argument("--num_train_epochs", default=10, type=int,
                         help="Total number of training epochs to perform.")
 
     args = parser.parse_args()
@@ -204,13 +161,11 @@ def main():
     # create example
     path_dic = {}
     for example_type in ['train', 'valid', 'test']:
-        path_dic[example_type] = os.path.join(args.data_dir, f'{example_type}_data.pt')
+        path_dic[example_type] = os.path.join(args.data_dir, f'bert_data01/{example_type}_data.pt')
         file = path_dic[example_type]
         if not os.path.exists(file):
-            input_ids, input_types, input_masks, y, record_pos, tab_lens = prepare_for_bert(args.data_src,
-                                                                                            args.data_dir, tokenizer,
-                                                                                            example_type=example_type,
-                                                                                            do_norm=False)
+            input_ids, input_types, input_masks, y, record_pos, tab_lens = prepare_for_bert(args.data_dir, tokenizer,
+                                                                                            example_type=example_type)
             torch.save([input_ids, input_types, input_masks, y, record_pos, tab_lens], file)
             print(f"saving {example_type}_data")
 
@@ -236,18 +191,18 @@ def main():
 
         logger.info(f"batch={args.train_batch_size},lr = {args.learning_rate} ")
         train_and_eval(model, train_loader, val_loader, optimizer, scheduler, device, epoch,
-                       '/Myhome/slf/work/data-to-text/data/bert_saved')
+                       os.path.join(args.data_dir, 'bert_saved'))
 
     if args.do_eval:
         # evaluate
-        model = torch.load('/Myhome/slf/work/data-to-text/data/bert_saved/ckpt_bert.model')
+        model = torch.load('/Myhome/slf/work/data-to-text/data/bert_saved/ckpt_bert_relu.model')
         model.to(device)
         logger.info(f'use model for evaluating:{model}')
         input_ids_test, input_types_test, input_masks_test, y_test, record_pos_test, tab_lens = torch.load(
             path_dic['test'])
         test_data = TensorDataset(input_ids_test, input_masks_test, input_types_test, record_pos_test, y_test)
         test_loader = DataLoader(test_data, batch_size=32, shuffle=False)
-        evaluate(model, test_loader, device, tab_lens=None)
+        evaluate(model, test_loader, device, tab_lens=tab_lens)
 
 
 if __name__ == '__main__':

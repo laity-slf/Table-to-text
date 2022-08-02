@@ -144,7 +144,7 @@ def get_scores(entity, key, value, m_val, summary):
     if score:
         return score
     else:
-        return (int(value) / (m_val + 1e-3)) * 0.2 if K_MAP[key] else 0.05
+        return (int(value) / (m_val + 1e-3)) * 0.2 if K_MAP[key] else 0.05  # ent is not matched
 
 
 def _clean_summary(summary, tokens):
