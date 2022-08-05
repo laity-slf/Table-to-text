@@ -35,6 +35,7 @@ MAP = json.load(f)
 POS_MAP = MAP['POS_MAP']
 K_MAP = MAP["K_MAP"]
 
+VOCAB = []
 
 def _build_home(entry):
     """The team who hosted the game"""

@@ -81,6 +81,7 @@ def evaluate(model, valid_loader, device, tab_lens=None):
     pred_list = []
     criterion = nn.MSELoss()
     val_pred = []
+    val_label = []
     with torch.no_grad():
         if not tab_lens:
             for idx, (ids, att, tpe, record_pos, labels) in tqdm(enumerate(valid_loader), total=len(valid_loader)):
@@ -90,6 +91,9 @@ def evaluate(model, valid_loader, device, tab_lens=None):
                 label_list.extend(ll.view(-1).cpu().numpy().astype(int))
                 pred_list.extend(pred.view(-1).cpu().numpy().astype(int))
                 loss = criterion(labels.to(device), output)
+
+                val_pred.append(pred.view(-1,20).cpu().numpy().astype(int))
+                val_pred.append(pred.view(-1, 20).cpu().numpy().astype(int))
                 tot_loss += loss.item()
             f1, acc, recall, precision = get_f1score_transformer(label_list, pred_list), get_acc_transformer(label_list,
                                                                                                              pred_list), get_recall_transformer(
@@ -240,7 +244,7 @@ def main():
 
     if args.do_eval:
         # evaluate
-        model = torch.load('/Myhome/slf/work/data-to-text/data/bert_saved/ckpt_bert.model')
+        model = torch.load('/Myhome/slf/work/data-to-text/data/bert_saved/ckpt_bert_norm.model')
         model.to(device)
         logger.info(f'use model for evaluating:{model}')
         input_ids_test, input_types_test, input_masks_test, y_test, record_pos_test, tab_lens = torch.load(
