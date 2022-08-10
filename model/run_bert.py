@@ -26,7 +26,6 @@ MODEL_CLASSES = {
 }
 ALL_MODELS = BERT_PRETRAINED_MODEL_ARCHIVE_LIST
 
-
 logger = logging.getLogger(__name__)
 
 
@@ -64,7 +63,7 @@ def train_and_eval(model, train_loader, val_loader,
         # torch.save(model, os.path.join(model_dir, 'ckpt_bert_relu.model'))
         # """验证模型"""
         model.eval()
-        _, val_loss, _, _, _ = evaluate(model, val_loader, device)  # 验证模型的性能
+        _, _, val_loss, _, _, _ = evaluate(model, val_loader, device)  # 验证模型的性能
         # 保存最优模型
         if val_loss < best_loss:
             best_loss = val_loss
@@ -91,9 +90,9 @@ def evaluate(model, valid_loader, device, tab_lens=None):
                 label_list.extend(ll.view(-1).cpu().numpy().astype(int))
                 pred_list.extend(pred.view(-1).cpu().numpy().astype(int))
                 loss = criterion(labels.to(device), output)
-
-                val_pred.append(pred.view(-1,20).cpu().numpy().astype(int))
-                val_pred.append(pred.view(-1, 20).cpu().numpy().astype(int))
+                # 统计比例
+                val_pred.extend(pred.view(-1, 20).cpu().numpy().astype(int))
+                val_label.extend(ll.view(-1, 20).cpu().numpy().astype(int))
                 tot_loss += loss.item()
             f1, acc, recall, precision = get_f1score_transformer(label_list, pred_list), get_acc_transformer(label_list,
                                                                                                              pred_list), get_recall_transformer(
@@ -138,13 +137,12 @@ def evaluate(model, valid_loader, device, tab_lens=None):
                 tot_loss / len(valid_loader), f1,
                 acc, recall, precision))
 
-    return val_pred, tot_loss / len(valid_loader), f1, acc, recall
+    return val_pred, val_label, tot_loss / len(valid_loader), f1, acc, recall
 
 
 def _norm(a):
     return (a - torch.min(a, dim=1).values.view(-1, 1)) / (
             torch.max(a, dim=1).values.view(-1, 1) - torch.min(a, dim=1).values.view(-1, 1))
-
 
 
 # def _norm(a):
@@ -251,8 +249,8 @@ def main():
             path_dic['test'])
         test_data = TensorDataset(input_ids_test, input_masks_test, input_types_test, record_pos_test, y_test)
         test_loader = DataLoader(test_data, batch_size=32, shuffle=False)
-        evaluate(model, test_loader, device, tab_lens=None)
-
+        test_pred, test_label, _, _, _, _ = evaluate(model, test_loader, device, tab_lens=None)
+        print(1)
 
 if __name__ == '__main__':
     main()
