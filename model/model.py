@@ -77,15 +77,16 @@ class linear_model(nn.Module):
     def __init__(self, input_dim, out_dim, dropout=0.2):
         super(linear_model, self).__init__()
         self.fc = nn.Sequential(
-            nn.Linear(input_dim, 512),
+            nn.Linear(input_dim, 64),
             nn.ReLU(),
-            nn.Linear(512, 256),
+            nn.Linear(64, 32),
             nn.ReLU(),
-            nn.Linear(256, out_dim),
-            nn.ReLU(),
-            nn.Dropout(dropout))
+            nn.Linear(32, out_dim),
+            nn.Dropout(dropout),
+            nn.Sigmoid(),)
 
     def forward(self, x):
         # batch * output_dim
         out = self.fc(x)
+
         return out
