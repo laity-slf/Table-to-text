@@ -83,6 +83,8 @@ def prepare_for_bert(input_file, output_file, tokenizer, example_type='train', d
                     tmp.extend(r[1:-1])
                     n += 1
                 entity[i].append(' '.join(tmp[:-1]))
+        # 筛去为0的部分数据 TODO
+
         # 保存文件为 npy
         np.save(data_file, (entity, team))
     print(f"finishing creating {example_type} data")

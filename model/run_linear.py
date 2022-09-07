@@ -147,30 +147,38 @@ if __name__ == '__main__':
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     data_prefix = '../data/'
     # 初次筛选出来的行
-    row = np.load('../data/pred_row_recall_95%25.npy')
-
+    row_train = np.load('../data/pred_row_recall_95%_train.npy')
+    row_val = np.load('../data/pred_row_recall_95%_valid.npy')
+    row_test = np.load('../data/pred_row_recall_95%_test.npy')
     # per
     per_train = np.load(os.path.join(data_prefix, 'per_train.npy'))
     per_valid = np.load(os.path.join(data_prefix, 'per_valid.npy'))
+    per_test = np.load(os.path.join(data_prefix, 'per_test.npy'))
+
     per_train = norm(per_train.reshape(-1, 22)[:, 0])
     per_valid = norm(per_valid.reshape(-1, 22)[:, 0])
+    per_test = norm(per_test.reshape(-1, 22)[:, 0])
 
     # 归一化的data
     train_data = pd.read_csv(os.path.join(data_prefix, 'rotowire_train.csv'))
     val_data = pd.read_csv(os.path.join(data_prefix, 'rotowire_valid.csv'))
-
-    train_data['per'], val_data['per'] = per_train, per_valid
+    test_data = pd.read_csv(os.path.join(data_prefix, 'rotowire_test.csv'))
+    train_data['per'], val_data['per'], test_data['per'] = per_train, per_valid, per_test
 
     # add all_star
     all_star_train = np.load('../data/all_star_train.npy', allow_pickle=True).item()
     all_star_val = np.load('../data/all_star_valid.npy', allow_pickle=True).item()
+    all_star_test = np.load('../data/all_star_test.npy', allow_pickle=True).item()
+
     train_data = add_all_star(train_data, all_star_train)
     val_data = add_all_star(val_data, all_star_val)
+    test_data = add_all_star(test_data, all_star_test)
 
-    train_x, val_x = convert_data(train_data.values[row, list(range(3, 8)) + [17, 18, 21, 23, 24]]), convert_data(
-        val_data.values[row, list(range(1, 8)) + [17, 18, 21, 23, 24]])
+    train_x, val_x = convert_data(
+        train_data.values[row_train.astype(bool), :][:, list(range(3, 8)) + [17, 18, 21, 23, 24]]), convert_data(
+        val_data.values[row_val.astype(bool), :][:, list(range(1, 8)) + [17, 18, 21, 23, 24]])
     train_y, val_y = np.load(os.path.join(data_prefix, 'train.npy')), np.load(os.path.join(data_prefix, 'valid.npy'))
-    train_y, val_y = convert_label(train_y), convert_label(val_y)
+    train_y, val_y = convert_label(train_y[row_train.astype(bool)]), convert_label(val_y)
     # 参数
     bs = 64
     n_epoch = 50
@@ -185,6 +193,11 @@ if __name__ == '__main__':
     # 加载模型
     model = linear_model(10, 1)
     model.to(device)
-    training(n_epoch, lr, '/Myhome/slf/work/data-to-text/data/linear', train_loader, val_loader, model, device)
+
+    # 训练
+    # training(n_epoch, lr, '/Myhome/slf/work/data-to-text/data/linear', train_loader, val_loader, model, device)
+
+    # 评估
+    evaluate(model, )
 
     print(1)
